@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Veille</title>
+  <meta name="description" content="Surveillance de pages web">
+  <meta name="theme-color" content="#f6f6f3" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#151515" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Veille">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Veille</h1>
+      <p id="lastRun" class="muted">Chargement…</p>
+    </div>
+    <nav>
+      <button id="btnRefresh" class="icon" aria-label="Actualiser" title="Actualiser">↻</button>
+      <button id="btnSettings" class="icon" aria-label="Réglages" title="Réglages">⚙︎</button>
+      <button id="btnAdd" class="icon primary" aria-label="Ajouter une URL" title="Ajouter">＋</button>
+    </nav>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main id="list" aria-live="polite"></main>
+
+  <p id="empty" class="empty muted" hidden>Aucune URL surveillée. Touchez ＋ pour en ajouter une.</p>
+
+  <!-- Ajout / modification -->
+  <dialog id="dlgEdit">
+    <form method="dialog" id="formEdit">
+      <h2 id="editTitle">Ajouter une URL</h2>
+      <label>Nom
+        <input name="name" required autocomplete="off" placeholder="Ex. Prix du billet">
+      </label>
+      <label>URL
+        <input name="url" type="url" required inputmode="url" autocapitalize="off" autocomplete="off" placeholder="https://…">
+      </label>
+      <label>Sélecteur CSS <span class="muted">(facultatif)</span>
+        <input name="selector" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="Ex. #prix, .article h1">
+      </label>
+      <p class="hint muted">Sans sélecteur, tout le texte de la page est comparé.</p>
+      <div class="actions">
+        <button type="button" class="ghost" data-close>Annuler</button>
+        <button type="submit" class="primary">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Réglages -->
+  <dialog id="dlgSettings">
+    <form method="dialog" id="formSettings">
+      <h2>Réglages</h2>
+      <label>Dépôt GitHub
+        <input name="repo" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="propriétaire/depot">
+      </label>
+      <label>Jeton fine-grained
+        <input name="token" type="password" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="github_pat_…">
+      </label>
+      <p class="hint muted">Le jeton reste uniquement dans ce navigateur (localStorage). Il sert à modifier <code>urls.json</code> et à lancer un contrôle.</p>
+      <p id="tokenState" class="hint"></p>
+      <div class="actions">
+        <button type="button" class="ghost danger" id="btnForget">Oublier le jeton</button>
+        <button type="submit" class="primary">Enregistrer</button>
+      </div>
+      <hr>
+      <button type="button" id="btnRun" class="wide">Lancer un contrôle maintenant</button>
+      <button type="button" class="ghost wide" data-close>Fermer</button>
+    </form>
+  </dialog>
+
+  <!-- Historique -->
+  <dialog id="dlgHistory" class="tall">
+    <div class="dlg-head">
+      <h2 id="histTitle">Historique</h2>
+      <button type="button" class="icon" data-close aria-label="Fermer">✕</button>
+    </div>
+    <div id="histBody"></div>
+  </dialog>
+
+  <template id="tplCard">
+    <article class="card">
+      <div class="card-head">
+        <div class="titles">
+          <h3 class="name"></h3>
+          <a class="host muted" target="_blank" rel="noopener"></a>
+        </div>
+        <button class="icon menu" aria-label="Actions">⋯</button>
+      </div>
+      <dl class="dates">
+        <div><dt>Contrôle</dt><dd class="checked"></dd></div>
+        <div><dt>Modification</dt><dd class="changed"></dd></div>
+      </dl>
+      <p class="selector muted"></p>
+      <p class="error"></p>
+      <details class="diff-wrap">
+        <summary></summary>
+        <pre class="diff"></pre>
+        <button class="ghost small history">Historique complet</button>
+      </details>
+      <div class="card-actions" hidden>
+        <a class="btn ghost small open" target="_blank" rel="noopener">Ouvrir</a>
+        <button class="ghost small edit">Modifier</button>
+        <button class="ghost small danger delete">Supprimer</button>
+      </div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>

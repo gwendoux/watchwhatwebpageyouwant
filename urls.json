@@ -1,0 +1,11 @@
+[
+  {
+    "name": "Exemple – page d'accueil",
+    "url": "https://example.com/"
+  },
+  {
+    "name": "Statut GitHub",
+    "url": "https://www.githubstatus.com/",
+    "selector": ".page-status, .unresolved-incidents"
+  }
+]
