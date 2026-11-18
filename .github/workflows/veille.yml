@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "17 * * * *"   # toutes les heures (minute 17 pour éviter l'heure pile, très chargée)
   workflow_dispatch:
+    inputs:
+      test_push:
+        description: "Envoyer une notification de test"
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths-ignore:
@@ -12,7 +17,6 @@ on:
 
 permissions:
   contents: write
-  issues: write
   pages: write
   id-token: write
 
@@ -35,7 +39,9 @@ jobs:
 
       - name: Contrôle des pages
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          PUSH_SUBSCRIPTIONS: ${{ vars.PUSH_SUBSCRIPTIONS }}
+          PUSH_TEST: ${{ inputs.test_push }}
         run: python scripts/check.py
 
       - name: Commit de data/
@@ -52,12 +58,15 @@ jobs:
           exit 1
 
       - name: Préparation du site
+        env:
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
         run: |
           mkdir -p _site
           cp -r web/. _site/
           cp urls.json _site/
           mkdir -p _site/data && cp data/status.json _site/data/
           cp -r data/history _site/data/
+          python scripts/webpush.py public > _site/vapid.json
           touch _site/.nojekyll
 
       - uses: actions/upload-pages-artifact@v3

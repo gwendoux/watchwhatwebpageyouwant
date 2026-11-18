@@ -3,12 +3,13 @@
 Un petit outil de veille hébergé **entièrement sur GitHub**, sans serveur :
 
 - **GitHub Actions** contrôle toutes les heures les pages listées dans `urls.json` ;
-- chaque modification est enregistrée dans `data/` (avec historique) et **signalée par une issue GitHub**, notifiée sur votre téléphone par l'app GitHub ;
+- chaque modification est enregistrée dans `data/` (avec historique) et **notifiée sur votre téléphone** par Web Push, directement par l'app web, sans service tiers ;
 - une **interface web** sur GitHub Pages, pensée pour l'iPhone et installable sur l'écran d'accueil, affiche l'état de chaque page et permet d'ajouter, modifier ou supprimer des URL.
 
 ```
 urls.json                     liste des pages à surveiller
 scripts/check.py              script de contrôle (requests + BeautifulSoup)
+scripts/webpush.py            envoi Web Push (chiffrement RFC 8291 + VAPID)
 data/status.json              état courant, mis à jour et commité à chaque passage
 data/snapshots/<id>.txt       dernier texte extrait de chaque page
 data/history/<id>.json        historique des modifications (100 dernières)
@@ -25,15 +26,22 @@ web/                          interface (HTML/CSS/JS sans framework)
 Sur la page du dépôt, cliquez sur **Use this template → Create a new repository**, ou faites un *fork*.
 Le dépôt doit être **public** pour bénéficier gratuitement de GitHub Pages et des minutes Actions illimitées.
 
-> ⚠️ Dans un dépôt public, `urls.json` et `data/` (le texte des pages surveillées) sont visibles par tous, de même que les issues de notification.
+> ⚠️ Dans un dépôt public, `urls.json` et `data/` (le texte des pages surveillées) sont visibles par tous. Les abonnements aux notifications, eux, sont stockés dans une variable privée du dépôt.
 
-### 2. Recevoir les notifications sur l'iPhone
+### 2. Créer la clé des notifications (VAPID)
 
-Aucun service externe, aucun secret : à chaque modification, le workflow ouvre une **issue** dans le dépôt et vous y mentionne.
+Les notifications Web Push sont signées par une clé privée, à garder en secret dans le dépôt.
 
-1. Installez l'app **GitHub** depuis l'App Store et connectez-vous.
-2. Dans l'app : **Profil → ⚙︎ Settings → Notifications** : activez les notifications push (au minimum *Participating* et *Mentions*).
-3. Vérifiez que **Issues** est activé dans le dépôt : **Settings → General → Features → Issues** (c'est le cas par défaut).
+1. Générez une paire de clés, au choix :
+   ```bash
+   pip install cryptography && python scripts/webpush.py generate
+   ```
+   ou, avec Node.js : `npx web-push generate-vapid-keys` (seule la *Private Key* sert).
+2. Dépôt → **Settings → Secrets and variables → Actions → Secrets → New repository secret**
+   - *Name* : `VAPID_PRIVATE_KEY`
+   - *Secret* : la clé privée (43 caractères, par exemple `x3Fq…`).
+
+La clé publique n'est pas à saisir : le workflow la calcule et la publie dans `vapid.json` avec l'interface.
 
 ### 3. Autoriser le workflow à écrire
 
@@ -59,17 +67,23 @@ L'interface modifie `urls.json` via l'API GitHub. Elle a besoin d'un jeton **lim
 4. **Repository access** : **Only select repositories**, puis sélectionnez **uniquement ce dépôt**.
 5. **Permissions → Repository permissions** :
    - **Contents** : **Read and write** (obligatoire, pour modifier `urls.json`) ;
-   - **Actions** : **Read and write** (facultatif, pour le bouton « Lancer un contrôle maintenant ») ;
+   - **Variables** : **Read and write** (pour enregistrer l'abonnement aux notifications de chaque appareil) ;
+   - **Actions** : **Read and write** (facultatif, pour les boutons « Lancer un contrôle maintenant » et « Envoyer une notification de test ») ;
    - *Metadata : Read-only* est ajouté automatiquement.
 6. **Generate token**, puis copiez le jeton (`github_pat_…`). Il ne sera plus affiché.
 
-### 7. Installer l'interface sur l'iPhone
+### 7. Installer l'interface sur l'iPhone et activer les notifications
 
 1. Ouvrez `https://<votre-compte>.github.io/<nom-du-depot>/` dans **Safari**.
 2. Touchez **Partager** puis **Sur l'écran d'accueil**.
-3. Ouvrez l'application, touchez **⚙︎**, collez le jeton et touchez **Enregistrer**. Le message « ✓ Accès en écriture » confirme que tout est prêt.
+3. **Ouvrez l'app depuis son icône**. Les notifications Web Push ne fonctionnent que dans l'app installée (iOS 16.4 ou plus récent), pas dans Safari.
+4. Touchez **⚙︎**, collez le jeton et touchez **Enregistrer**. Le message « ✓ Accès en écriture » confirme que tout est prêt.
+5. Dans la même fenêtre, touchez **Activer les notifications sur cet appareil**, puis **Autoriser**.
+6. Touchez **Envoyer une notification de test** : elle arrive en une à deux minutes, le temps que le workflow tourne.
 
-Le jeton est gardé dans le `localStorage` de l'appareil et n'est envoyé qu'à `api.github.com`. Le bouton **Oublier le jeton** l'efface.
+Répétez les étapes 3 à 5 sur chaque appareil à notifier (iPhone, iPad, Mac, Android…).
+
+Le jeton est gardé dans le `localStorage` de l'appareil et n'est envoyé qu'à `api.github.com`. Le bouton **Oublier le jeton** l'efface. Les notifications restent actives même sans jeton.
 
 ---
 
@@ -93,13 +107,15 @@ Chaque enregistrement depuis l'interface crée un commit sur `urls.json`, ce qui
 
 `selector` accepte n'importe quel sélecteur CSS reconnu par BeautifulSoup, plusieurs sélecteurs séparés par des virgules compris. Sans sélecteur, tout le texte de la page est comparé (balises `script`, `style`, etc. exclues). Une page est identifiée par son URL et son sélecteur. Changer l'un ou l'autre repart donc d'un nouvel état de référence, alors que renommer une page conserve son historique.
 
-### Notifications (issues GitHub)
+### Notifications (Web Push)
 
-Pour chaque modification, le workflow ouvre une issue **« Modifié : nom de la page »** (étiquette `veille`) contenant la date, le nombre de lignes ajoutées/supprimées, le diff et deux liens : **Ouvrir la page** et **Tableau de bord**. Vous y êtes mentionné, l'app GitHub envoie donc une notification push.
+Pour chaque modification, chaque appareil abonné reçoit une notification **« Modifié : nom de la page »** avec le nombre de lignes ajoutées et supprimées et un extrait du texte changé. **Toucher la notification ouvre l'app sur la carte de la page**, diff déplié.
 
-- **Fermez l'issue une fois lue.** Tant qu'elle reste ouverte, les modifications suivantes de la même page y sont ajoutées **en commentaire** (une notification chacune) plutôt que d'ouvrir de nouvelles issues.
-- Les erreurs (page inaccessible, sélecteur introuvable) ne créent pas d'issue : elles s'affichent en jaune dans l'interface.
-- Aucun jeton à créer : le workflow utilise le `GITHUB_TOKEN` fourni automatiquement par GitHub Actions (permission `issues: write`).
+- **Où sont stockés les abonnements ?** Dans la variable de dépôt `PUSH_SUBSCRIPTIONS` (Settings → Secrets and variables → Actions → Variables). Elle n'est pas publique, contrairement aux fichiers du dépôt. L'interface la met à jour quand vous activez ou désactivez un appareil.
+- **Abonnement expiré** (app supprimée, iPhone restauré…) : le contrôle le détecte, et l'interface le retire de la variable à sa prochaine ouverture avec le jeton. Il suffit ensuite de réactiver les notifications sur l'appareil concerné.
+- **Notifications refusées par erreur** : réautorisez-les dans **Réglages iOS → Notifications → Veille**.
+- Les erreurs (page inaccessible, sélecteur introuvable) ne sont pas notifiées : elles s'affichent en jaune dans l'interface.
+- `data/status.json` indique dans `push` le nombre d'appareils abonnés, de notifications envoyées et les éventuelles erreurs d'envoi.
 
 ---
 
@@ -118,11 +134,11 @@ pip install -r requirements.txt
 ```
 
 ```bash
-python scripts/check.py   # sans GITHUB_TOKEN, aucune issue n'est créée
+python scripts/check.py   # sans VAPID_PRIVATE_KEY ni PUSH_SUBSCRIPTIONS, aucune notification
 ```
 
 Pour voir l'interface avec les données locales :
 
 ```bash
-mkdir -p _site/data && cp -r web/. _site/ && cp urls.json _site/ && cp -r data/status.json data/history _site/data/ && python -m http.server -d _site 8000
+mkdir -p _site/data && cp -r web/. _site/ && cp urls.json _site/ && cp -r data/status.json data/history _site/data/ && python scripts/webpush.py public > _site/vapid.json && python -m http.server -d _site 8000
 ```

@@ -103,7 +103,8 @@ async function gh(path, opts = {}) {
     err.status = res.status;
     throw err;
   }
-  return res.status === 204 ? null : res.json();
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
 
 async function readUrlsRemote() {
@@ -156,6 +157,7 @@ async function load() {
     state.status = status || { pages: {} };
     state.ids = await Promise.all(state.urls.map(pageId));
     render();
+    cleanDeadSubscriptions().catch(() => {});
   } catch (e) {
     banner("Chargement impossible : " + e.message, false, 0);
   } finally {
@@ -179,10 +181,27 @@ function render() {
   const list = $("#list");
   list.replaceChildren(...items.map(card));
   $("#empty").hidden = items.length > 0;
+  focusFromHash();
 }
+
+/** Ouvre la carte visée par #p-<id> (lien d'une notification). */
+function focusFromHash() {
+  const id = location.hash.slice(1);
+  if (!id.startsWith("p-")) return;
+  const el = document.getElementById(id);
+  if (!el) return;
+  history.replaceState(null, "", location.pathname + location.search);
+  const det = $(".diff-wrap", el);
+  if (det && !det.classList.contains("empty")) det.open = true;
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+  el.classList.add("flash");
+  setTimeout(() => el.classList.remove("flash"), 2500);
+}
+window.addEventListener("hashchange", focusFromHash);
 
 function card({ entry, i, st }) {
   const node = $("#tplCard").content.firstElementChild.cloneNode(true);
+  node.id = `p-${state.ids[i]}`;
   $(".name", node).textContent = entry.name || hostOf(entry.url);
   const host = $(".host", node);
   host.textContent = hostOf(entry.url);
@@ -312,6 +331,7 @@ function openSettings() {
   $("#tokenState").textContent = settings.token ? "Jeton enregistré." : "Aucun jeton enregistré.";
   $("#dlgSettings").showModal();
   document.activeElement?.blur(); // évite d'ouvrir le clavier sur iPhone
+  refreshPushUi();
 }
 
 $("#formSettings").addEventListener("submit", async (ev) => {
@@ -328,6 +348,7 @@ $("#formSettings").addEventListener("submit", async (ev) => {
     st.textContent = canPush
       ? `✓ Accès en écriture à ${repo.full_name}.`
       : `⚠︎ Jeton valide mais sans droit d’écriture sur ${repo.full_name} (permission « Contents »).`;
+    refreshPushUi();
     if (canPush) { setTimeout(() => $("#dlgSettings").close(), 900); load(); }
   } catch (e) {
     st.textContent = "⚠︎ " + e.message;
@@ -340,15 +361,19 @@ $("#btnForget").addEventListener("click", () => {
   $("#tokenState").textContent = "Jeton effacé de cet appareil.";
 });
 
+async function dispatchRun(inputs) {
+  const repo = await gh("");
+  await gh("/actions/workflows/veille.yml/dispatches", {
+    method: "POST",
+    body: JSON.stringify({ ref: repo.default_branch, ...(inputs ? { inputs } : {}) }),
+  });
+}
+
 $("#btnRun").addEventListener("click", async (ev) => {
   const btn = ev.currentTarget;
   btn.disabled = true;
   try {
-    const repo = await gh("");
-    await gh("/actions/workflows/veille.yml/dispatches", {
-      method: "POST",
-      body: JSON.stringify({ ref: repo.default_branch }),
-    });
+    await dispatchRun();
     $("#dlgSettings").close();
     banner("Contrôle lancé. Actualisez dans une à deux minutes.", true);
   } catch (e) {
@@ -358,6 +383,146 @@ $("#btnRun").addEventListener("click", async (ev) => {
     btn.disabled = false;
   }
 });
+
+/* ---------- Notifications Web Push ---------- */
+
+const PUSH_VAR = "PUSH_SUBSCRIPTIONS";
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isStandalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const pushSupported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+let vapidKey = null;
+const vapidReady = fetchLocal("vapid.json").then(j => (vapidKey = j.publicKey || null)).catch(() => null);
+
+const sha1short = async (text) => {
+  const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 12);
+};
+
+function urlB64ToBytes(b64) {
+  const s = atob((b64 + "=".repeat((4 - b64.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(s, c => c.charCodeAt(0));
+}
+
+function deviceLabel() {
+  const ua = navigator.userAgent;
+  const kind = /iPhone/.test(ua) ? "iPhone" : isIOS ? "iPad" : /Android/.test(ua) ? "Android"
+    : /Mac/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows" : "Appareil";
+  return `${kind} – ${new Date().toLocaleDateString("fr-FR")}`;
+}
+
+async function readSubs() {
+  try {
+    const v = await gh(`/actions/variables/${PUSH_VAR}`);
+    const list = JSON.parse(v.value || "[]");
+    return { list: Array.isArray(list) ? list : [], exists: true };
+  } catch (e) {
+    if (e.status === 404) return { list: [], exists: false };
+    throw e;
+  }
+}
+
+async function writeSubs(list, exists) {
+  const body = JSON.stringify({ name: PUSH_VAR, value: JSON.stringify(list) });
+  if (exists) await gh(`/actions/variables/${PUSH_VAR}`, { method: "PATCH", body });
+  else await gh("/actions/variables", { method: "POST", body });
+}
+
+async function currentSubscription() {
+  if (!pushSupported) return null;
+  const reg = await navigator.serviceWorker.getRegistration();
+  return reg ? reg.pushManager.getSubscription() : null;
+}
+
+async function refreshPushUi() {
+  const st = $("#pushState"), btn = $("#btnPush"), test = $("#btnPushTest");
+  btn.hidden = test.hidden = true;
+  if (!pushSupported) {
+    st.textContent = isIOS && !isStandalone
+      ? "Sur iPhone, ajoutez d’abord l’app à l’écran d’accueil (Partager → Sur l’écran d’accueil), puis ouvrez-la depuis son icône."
+      : "Ce navigateur ne gère pas les notifications push.";
+    return;
+  }
+  await vapidReady;
+  if (!vapidKey) {
+    st.textContent = "Le secret VAPID_PRIVATE_KEY n’est pas encore configuré dans le dépôt (voir le README).";
+    return;
+  }
+  if (Notification.permission === "denied") {
+    st.textContent = "Notifications refusées pour cette app. Autorisez-les dans Réglages iOS → Notifications → Veille.";
+    return;
+  }
+  const sub = await currentSubscription();
+  btn.hidden = false;
+  btn.classList.toggle("primary", !sub);
+  btn.classList.toggle("danger", !!sub);
+  btn.textContent = sub ? "Désactiver sur cet appareil" : "Activer les notifications sur cet appareil";
+  test.hidden = !sub;
+  st.textContent = sub ? "✓ Cet appareil reçoit les notifications."
+    : "Recevez une notification à chaque modification détectée.";
+}
+
+$("#btnPush").addEventListener("click", async (ev) => {
+  const btn = ev.currentTarget;
+  const st = $("#pushState");
+  if (!settings.token) { st.textContent = "Enregistrez d’abord votre jeton ci-dessus."; return; }
+  btn.disabled = true;
+  try {
+    const existing = await currentSubscription();
+    if (existing) {
+      const { list, exists } = await readSubs();
+      await writeSubs(list.filter(s => s.endpoint !== existing.endpoint), exists);
+      await existing.unsubscribe();
+      banner("Notifications désactivées sur cet appareil.", true);
+    } else {
+      // La demande d'autorisation doit suivre directement le geste de l'utilisateur (iOS).
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") throw new Error("Autorisation refusée.");
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true, applicationServerKey: urlB64ToBytes(vapidKey),
+      });
+      const json = sub.toJSON();
+      const { list, exists } = await readSubs();
+      const next = list.filter(s => s.endpoint !== json.endpoint);
+      next.push({ endpoint: json.endpoint, keys: json.keys, label: deviceLabel(),
+                  created: new Date().toISOString() });
+      await writeSubs(next, exists);
+      banner("Notifications activées ✓", true);
+    }
+  } catch (e) {
+    st.textContent = "⚠︎ " + e.message +
+      (e.status === 403 ? " (le jeton doit avoir la permission « Variables : lecture et écriture »)" : "");
+    btn.disabled = false;
+    return;
+  }
+  btn.disabled = false;
+  refreshPushUi();
+});
+
+$("#btnPushTest").addEventListener("click", async (ev) => {
+  const btn = ev.currentTarget;
+  btn.disabled = true;
+  try {
+    await dispatchRun({ test_push: "true" });
+    $("#pushState").textContent = "Test lancé : la notification arrive d’ici une à deux minutes.";
+  } catch (e) {
+    $("#pushState").textContent = "⚠︎ " + e.message +
+      (e.status === 403 ? " (le jeton doit avoir la permission « Actions : lecture et écriture »)" : "");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/** Retire de la variable les abonnements signalés expirés par le dernier contrôle. */
+async function cleanDeadSubscriptions() {
+  const dead = state.status.push?.dead || [];
+  if (!settings.token || !dead.length) return;
+  const { list, exists } = await readSubs();
+  const ids = await Promise.all(list.map(s => sha1short(s.endpoint)));
+  const next = list.filter((_, i) => !dead.includes(ids[i]));
+  if (next.length !== list.length) await writeSubs(next, exists);
+}
 
 /* ---------- Démarrage ---------- */
 

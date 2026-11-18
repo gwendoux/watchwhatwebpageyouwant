@@ -66,12 +66,17 @@
       <label>Jeton fine-grained
         <input name="token" type="password" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="github_pat_…">
       </label>
-      <p class="hint muted">Le jeton reste uniquement dans ce navigateur (localStorage). Il sert à modifier <code>urls.json</code> et à lancer un contrôle.</p>
+      <p class="hint muted">Le jeton reste uniquement dans ce navigateur (localStorage). Il sert à modifier <code>urls.json</code>, à enregistrer l’abonnement aux notifications et à lancer un contrôle.</p>
       <p id="tokenState" class="hint"></p>
       <div class="actions">
         <button type="button" class="ghost danger" id="btnForget">Oublier le jeton</button>
         <button type="submit" class="primary">Enregistrer</button>
       </div>
+      <hr>
+      <h3>Notifications</h3>
+      <p id="pushState" class="hint muted">…</p>
+      <button type="button" id="btnPush" class="wide primary" hidden>Activer les notifications sur cet appareil</button>
+      <button type="button" id="btnPushTest" class="wide" hidden>Envoyer une notification de test</button>
       <hr>
       <button type="button" id="btnRun" class="wide">Lancer un contrôle maintenant</button>
       <button type="button" class="ghost wide" data-close>Fermer</button>

@@ -4,7 +4,7 @@
 Lit urls.json, récupère chaque page, extrait le texte (ou la zone d'un
 sélecteur CSS), le compare au dernier état enregistré dans data/, garde
 un historique des modifications, met à jour data/status.json et envoie
-une issue GitHub pour chaque modification.
+une notification Web Push pour chaque modification.
 """
 
 from __future__ import annotations
@@ -21,6 +21,9 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import webpush  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 URLS_FILE = ROOT / "urls.json"
 DATA = ROOT / "data"
@@ -31,7 +34,7 @@ STATUS_FILE = DATA / "status.json"
 HISTORY_MAX = 100          # entrées gardées par page
 PREVIEW_MAX_LINES = 40     # lignes de diff dans status.json
 PREVIEW_MAX_CHARS = 4000
-ISSUE_MAX_CHARS = 20000
+NOTIF_MAX_CHARS = 180
 TIMEOUT = 30
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -111,74 +114,73 @@ def pages_url() -> str | None:
     return f"https://{owner.lower()}.github.io/{name}/"
 
 
-class GitHubIssues:
-    """Ouvre une issue GitHub par page modifiée (ou commente l'issue encore ouverte)."""
+def short_id(text: str) -> str:
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
 
-    LABEL = "veille"
+
+class Pusher:
+    """Notifications Web Push vers les appareils abonnés depuis l'interface."""
 
     def __init__(self) -> None:
-        self.token = os.environ.get("GITHUB_TOKEN", "").strip()
-        self.repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
-        self.api = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
-        self.owner = os.environ.get("GITHUB_REPOSITORY_OWNER", "").strip()
-        self._open: list[dict] | None = None
-        self.enabled = bool(self.token and self.repo)
-
-    def _req(self, method: str, path: str, **kw):
-        r = requests.request(
-            method, f"{self.api}/repos/{self.repo}{path}", timeout=20,
-            headers={"Authorization": f"Bearer {self.token}",
-                     "Accept": "application/vnd.github+json",
-                     "X-GitHub-Api-Version": "2022-11-28"}, **kw)
-        return r
-
-    def _open_issues(self) -> list[dict]:
-        if self._open is None:
-            # Crée l'étiquette si besoin (422 = elle existe déjà).
-            self._req("POST", "/labels", json={"name": self.LABEL, "color": "2456d6",
-                                               "description": "Modification détectée par la veille"})
-            r = self._req("GET", "/issues", params={"labels": self.LABEL, "state": "open",
-                                                     "per_page": 100})
-            r.raise_for_status()
-            self._open = r.json()
-        return self._open
-
-    def notify(self, entry: dict, pid: str, diff: str, when: str) -> None:
-        if not self.enabled:
-            print("  (GITHUB_TOKEN absent : pas d'issue créée)")
-            return
-        added, removed = diff_counts(diff)
-        marker = f"<!-- veille:{pid} -->"
-        shown = diff[:ISSUE_MAX_CHARS] + ("\n…" if len(diff) > ISSUE_MAX_CHARS else "")
-        date = datetime.fromisoformat(when).strftime("%d/%m/%Y %H:%M UTC")
-        links = [f"[Ouvrir la page]({entry['url']})"]
-        dashboard = pages_url()
-        if dashboard:
-            links.append(f"[Tableau de bord]({dashboard})")
-        fence = "`" * max(3, max((len(m) for m in re.findall(r"`+", shown)), default=0) + 1)
-        body = (f"**{date}** · +{added} / −{removed} lignes · " + " · ".join(links)
-                + f"\n\n{fence}diff\n{shown}\n{fence}")
+        self.key = None
+        self.subs: list[dict] = []
+        self.dead: set[str] = set()
+        self.errors: list[str] = []
+        self.sent = 0
+        secret = os.environ.get("VAPID_PRIVATE_KEY", "").strip()
+        raw_subs = os.environ.get("PUSH_SUBSCRIPTIONS", "").strip()
         try:
-            existing = next((i for i in self._open_issues()
-                             if marker in (i.get("body") or "")), None)
-            if existing:
-                r = self._req("POST", f"/issues/{existing['number']}/comments", json={"body": body})
-                r.raise_for_status()
-                print(f"  commentaire ajouté à l'issue #{existing['number']}")
+            self.subs = [s for s in json.loads(raw_subs or "[]")
+                         if isinstance(s, dict) and s.get("endpoint") and s.get("keys")]
+        except json.JSONDecodeError:
+            self.errors.append("Variable PUSH_SUBSCRIPTIONS illisible")
+        if secret:
+            try:
+                self.key = webpush.load_private_key(secret)
+            except Exception as exc:  # noqa: BLE001
+                self.errors.append(f"VAPID_PRIVATE_KEY invalide : {exc}")
+        self.subject = pages_url() or "mailto:veille@example.invalid"
+
+    @property
+    def enabled(self) -> bool:
+        return self.key is not None and bool(self.subs)
+
+    def send(self, data: dict) -> None:
+        if not self.enabled:
+            print("  (pas de notification : aucun appareil abonné ou VAPID_PRIVATE_KEY absent)")
+            return
+        for sub in self.subs:
+            sid = short_id(sub["endpoint"])
+            if sid in self.dead:
+                continue
+            try:
+                r = webpush.send(sub, data, self.key, self.subject)
+            except Exception as exc:  # noqa: BLE001
+                self.errors.append(f"{sub.get('label') or sid} : {exc}"[:200])
+                continue
+            if r.status_code in (404, 410):
+                self.dead.add(sid)
+                print(f"  abonnement expiré : {sub.get('label') or sid}")
+            elif r.status_code >= 300:
+                self.errors.append(f"{sub.get('label') or sid} : HTTP {r.status_code} {r.text[:120]}")
+                print(f"  ! push refusé ({r.status_code}) : {r.text[:200]}")
             else:
-                mention = f"\n\n@{self.owner}" if self.owner else ""
-                r = self._req("POST", "/issues", json={
-                    "title": f"Modifié : {entry['name']}",
-                    "body": f"{marker}\n{body}{mention}\n\n"
-                            "_Fermez cette issue une fois lue : la prochaine modification "
-                            "en ouvrira une nouvelle (sinon elle sera ajoutée en commentaire)._",
-                    "labels": [self.LABEL],
-                })
-                r.raise_for_status()
-                self._open.append(r.json())
-                print(f"  issue #{r.json()['number']} créée")
-        except requests.RequestException as exc:
-            print(f"  ! création de l'issue échouée : {exc}")
+                self.sent += 1
+
+    def notify_change(self, entry: dict, pid: str, diff: str) -> None:
+        added, removed = diff_counts(diff)
+        changed = [l[1:].strip() for l in diff.splitlines()
+                   if l[:1] in "+-" and l[1:].strip()]
+        excerpt = " · ".join(changed)
+        if len(excerpt) > NOTIF_MAX_CHARS:
+            excerpt = excerpt[:NOTIF_MAX_CHARS] + "…"
+        self.send({"title": f"Modifié : {entry['name']}",
+                   "body": f"+{added} / −{removed}  {excerpt}",
+                   "tag": pid, "url": f"./#p-{pid}"})
+
+    def summary(self) -> dict:
+        return {"subscriptions": len(self.subs), "configured": self.key is not None,
+                "sent_last_run": self.sent, "dead": sorted(self.dead), "errors": self.errors[:10]}
 
 
 def main() -> int:
@@ -192,7 +194,7 @@ def main() -> int:
     new_pages: dict[str, dict] = {}
     run_at = now_iso()
     changes = 0
-    issues = GitHubIssues()
+    pusher = Pusher()
 
     for entry in entries:
         if not entry.get("url"):
@@ -241,7 +243,7 @@ def main() -> int:
                        "changes": st.get("changes", 0) + 1})
             changes += 1
             print(f"  MODIFIÉ (+{added} / -{removed})")
-            issues.notify(entry, pid, diff, run_at)
+            pusher.notify_change(entry, pid, diff)
         else:
             st["hash"] = digest
             print("  inchangé")
@@ -253,8 +255,14 @@ def main() -> int:
         for f in (SNAPSHOTS / f"{pid}.txt", HISTORY / f"{pid}.json"):
             f.unlink(missing_ok=True)
 
+    if os.environ.get("PUSH_TEST", "").lower() == "true":
+        print("Notification de test")
+        pusher.send({"title": "Veille", "body": "Les notifications fonctionnent ✓",
+                     "tag": "test", "url": "./"})
+
     save_json(STATUS_FILE, {"last_run": run_at, "count": len(new_pages),
-                            "changes_last_run": changes, "pages": new_pages})
+                            "changes_last_run": changes, "push": pusher.summary(),
+                            "pages": new_pages})
     print(f"Terminé : {len(new_pages)} page(s), {changes} modification(s).")
     return 0
 
