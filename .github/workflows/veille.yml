@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
   pages: write
   id-token: write
 
@@ -34,7 +35,7 @@ jobs:
 
       - name: Contrôle des pages
         env:
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/check.py
 
       - name: Commit de data/

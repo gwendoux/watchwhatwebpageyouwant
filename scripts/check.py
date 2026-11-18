@@ -4,7 +4,7 @@
 Lit urls.json, récupère chaque page, extrait le texte (ou la zone d'un
 sélecteur CSS), le compare au dernier état enregistré dans data/, garde
 un historique des modifications, met à jour data/status.json et envoie
-une notification ntfy.sh pour chaque modification.
+une issue GitHub pour chaque modification.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ STATUS_FILE = DATA / "status.json"
 HISTORY_MAX = 100          # entrées gardées par page
 PREVIEW_MAX_LINES = 40     # lignes de diff dans status.json
 PREVIEW_MAX_CHARS = 4000
-NTFY_MAX_CHARS = 1500
+ISSUE_MAX_CHARS = 20000
 TIMEOUT = 30
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -111,30 +111,74 @@ def pages_url() -> str | None:
     return f"https://{owner.lower()}.github.io/{name}/"
 
 
-def notify(entry: dict, diff: str) -> None:
-    topic = os.environ.get("NTFY_TOPIC", "").strip()
-    if not topic:
-        print("  (NTFY_TOPIC absent : pas de notification)")
-        return
-    server = os.environ.get("NTFY_SERVER", "https://ntfy.sh").rstrip("/")
-    added, removed = diff_counts(diff)
-    body = diff[:NTFY_MAX_CHARS] + ("\n…" if len(diff) > NTFY_MAX_CHARS else "")
-    payload = {
-        "topic": topic,
-        "title": f"Modifié : {entry['name']}",
-        "message": f"+{added} / −{removed} lignes\n\n{body}",
-        "tags": ["mag"],
-        "click": entry["url"],
-        "actions": [{"action": "view", "label": "Ouvrir la page", "url": entry["url"]}],
-    }
-    dashboard = pages_url()
-    if dashboard:
-        payload["actions"].append({"action": "view", "label": "Tableau de bord", "url": dashboard})
-    try:
-        r = requests.post(server, json=payload, timeout=15)
-        r.raise_for_status()
-    except requests.RequestException as exc:
-        print(f"  ! notification ntfy échouée : {exc}")
+class GitHubIssues:
+    """Ouvre une issue GitHub par page modifiée (ou commente l'issue encore ouverte)."""
+
+    LABEL = "veille"
+
+    def __init__(self) -> None:
+        self.token = os.environ.get("GITHUB_TOKEN", "").strip()
+        self.repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+        self.api = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+        self.owner = os.environ.get("GITHUB_REPOSITORY_OWNER", "").strip()
+        self._open: list[dict] | None = None
+        self.enabled = bool(self.token and self.repo)
+
+    def _req(self, method: str, path: str, **kw):
+        r = requests.request(
+            method, f"{self.api}/repos/{self.repo}{path}", timeout=20,
+            headers={"Authorization": f"Bearer {self.token}",
+                     "Accept": "application/vnd.github+json",
+                     "X-GitHub-Api-Version": "2022-11-28"}, **kw)
+        return r
+
+    def _open_issues(self) -> list[dict]:
+        if self._open is None:
+            # Crée l'étiquette si besoin (422 = elle existe déjà).
+            self._req("POST", "/labels", json={"name": self.LABEL, "color": "2456d6",
+                                               "description": "Modification détectée par la veille"})
+            r = self._req("GET", "/issues", params={"labels": self.LABEL, "state": "open",
+                                                     "per_page": 100})
+            r.raise_for_status()
+            self._open = r.json()
+        return self._open
+
+    def notify(self, entry: dict, pid: str, diff: str, when: str) -> None:
+        if not self.enabled:
+            print("  (GITHUB_TOKEN absent : pas d'issue créée)")
+            return
+        added, removed = diff_counts(diff)
+        marker = f"<!-- veille:{pid} -->"
+        shown = diff[:ISSUE_MAX_CHARS] + ("\n…" if len(diff) > ISSUE_MAX_CHARS else "")
+        date = datetime.fromisoformat(when).strftime("%d/%m/%Y %H:%M UTC")
+        links = [f"[Ouvrir la page]({entry['url']})"]
+        dashboard = pages_url()
+        if dashboard:
+            links.append(f"[Tableau de bord]({dashboard})")
+        fence = "`" * max(3, max((len(m) for m in re.findall(r"`+", shown)), default=0) + 1)
+        body = (f"**{date}** · +{added} / −{removed} lignes · " + " · ".join(links)
+                + f"\n\n{fence}diff\n{shown}\n{fence}")
+        try:
+            existing = next((i for i in self._open_issues()
+                             if marker in (i.get("body") or "")), None)
+            if existing:
+                r = self._req("POST", f"/issues/{existing['number']}/comments", json={"body": body})
+                r.raise_for_status()
+                print(f"  commentaire ajouté à l'issue #{existing['number']}")
+            else:
+                mention = f"\n\n@{self.owner}" if self.owner else ""
+                r = self._req("POST", "/issues", json={
+                    "title": f"Modifié : {entry['name']}",
+                    "body": f"{marker}\n{body}{mention}\n\n"
+                            "_Fermez cette issue une fois lue : la prochaine modification "
+                            "en ouvrira une nouvelle (sinon elle sera ajoutée en commentaire)._",
+                    "labels": [self.LABEL],
+                })
+                r.raise_for_status()
+                self._open.append(r.json())
+                print(f"  issue #{r.json()['number']} créée")
+        except requests.RequestException as exc:
+            print(f"  ! création de l'issue échouée : {exc}")
 
 
 def main() -> int:
@@ -148,6 +192,7 @@ def main() -> int:
     new_pages: dict[str, dict] = {}
     run_at = now_iso()
     changes = 0
+    issues = GitHubIssues()
 
     for entry in entries:
         if not entry.get("url"):
@@ -196,7 +241,7 @@ def main() -> int:
                        "changes": st.get("changes", 0) + 1})
             changes += 1
             print(f"  MODIFIÉ (+{added} / -{removed})")
-            notify(entry, diff)
+            issues.notify(entry, pid, diff, run_at)
         else:
             st["hash"] = digest
             print("  inchangé")

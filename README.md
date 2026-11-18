@@ -3,7 +3,7 @@
 Un petit outil de veille hébergé **entièrement sur GitHub**, sans serveur :
 
 - **GitHub Actions** contrôle toutes les heures les pages listées dans `urls.json` ;
-- chaque modification est enregistrée dans `data/` (avec historique) et **notifiée sur votre téléphone** via [ntfy.sh](https://ntfy.sh) ;
+- chaque modification est enregistrée dans `data/` (avec historique) et **signalée par une issue GitHub**, notifiée sur votre téléphone par l'app GitHub ;
 - une **interface web** sur GitHub Pages, pensée pour l'iPhone et installable sur l'écran d'accueil, affiche l'état de chaque page et permet d'ajouter, modifier ou supprimer des URL.
 
 ```
@@ -25,17 +25,15 @@ web/                          interface (HTML/CSS/JS sans framework)
 Sur la page du dépôt, cliquez sur **Use this template → Create a new repository**, ou faites un *fork*.
 Le dépôt doit être **public** pour bénéficier gratuitement de GitHub Pages et des minutes Actions illimitées.
 
-> ⚠️ Dans un dépôt public, `urls.json` et `data/` (le texte des pages surveillées) sont visibles par tous. Seul le topic ntfy reste secret.
+> ⚠️ Dans un dépôt public, `urls.json` et `data/` (le texte des pages surveillées) sont visibles par tous, de même que les issues de notification.
 
-### 2. Choisir un topic ntfy et l'enregistrer en secret
+### 2. Recevoir les notifications sur l'iPhone
 
-ntfy.sh n'a pas de compte : **le nom du topic sert de mot de passe**. Choisissez un nom long et difficile à deviner, par exemple `veille-7f3k9q2m8x`.
+Aucun service externe, aucun secret : à chaque modification, le workflow ouvre une **issue** dans le dépôt et vous y mentionne.
 
-1. Dépôt → **Settings → Secrets and variables → Actions → New repository secret**
-2. *Name* : `NTFY_TOPIC`
-3. *Secret* : votre topic, par exemple `veille-7f3k9q2m8x`, sans `https://ntfy.sh/`
-
-Sur l'iPhone, installez l'application **ntfy** depuis l'App Store, puis touchez **+** et abonnez-vous au même topic.
+1. Installez l'app **GitHub** depuis l'App Store et connectez-vous.
+2. Dans l'app : **Profil → ⚙︎ Settings → Notifications** : activez les notifications push (au minimum *Participating* et *Mentions*).
+3. Vérifiez que **Issues** est activé dans le dépôt : **Settings → General → Features → Issues** (c'est le cas par défaut).
 
 ### 3. Autoriser le workflow à écrire
 
@@ -95,11 +93,13 @@ Chaque enregistrement depuis l'interface crée un commit sur `urls.json`, ce qui
 
 `selector` accepte n'importe quel sélecteur CSS reconnu par BeautifulSoup, plusieurs sélecteurs séparés par des virgules compris. Sans sélecteur, tout le texte de la page est comparé (balises `script`, `style`, etc. exclues). Une page est identifiée par son URL et son sélecteur. Changer l'un ou l'autre repart donc d'un nouvel état de référence, alors que renommer une page conserve son historique.
 
-### Notifications
+### Notifications (issues GitHub)
 
-Chaque modification envoie une notification ntfy avec le nom de la page, le nombre de lignes ajoutées et supprimées, un extrait du diff et deux boutons : **Ouvrir la page** et **Tableau de bord**. Les erreurs (page inaccessible, sélecteur introuvable) ne sont pas notifiées : elles s'affichent en jaune dans l'interface.
+Pour chaque modification, le workflow ouvre une issue **« Modifié : nom de la page »** (étiquette `veille`) contenant la date, le nombre de lignes ajoutées/supprimées, le diff et deux liens : **Ouvrir la page** et **Tableau de bord**. Vous y êtes mentionné, l'app GitHub envoie donc une notification push.
 
-Pour un serveur ntfy auto-hébergé, ajoutez la variable `NTFY_SERVER` dans le workflow.
+- **Fermez l'issue une fois lue.** Tant qu'elle reste ouverte, les modifications suivantes de la même page y sont ajoutées **en commentaire** (une notification chacune) plutôt que d'ouvrir de nouvelles issues.
+- Les erreurs (page inaccessible, sélecteur introuvable) ne créent pas d'issue : elles s'affichent en jaune dans l'interface.
+- Aucun jeton à créer : le workflow utilise le `GITHUB_TOKEN` fourni automatiquement par GitHub Actions (permission `issues: write`).
 
 ---
 
@@ -118,7 +118,7 @@ pip install -r requirements.txt
 ```
 
 ```bash
-NTFY_TOPIC=mon-topic-de-test python scripts/check.py
+python scripts/check.py   # sans GITHUB_TOKEN, aucune issue n'est créée
 ```
 
 Pour voir l'interface avec les données locales :
