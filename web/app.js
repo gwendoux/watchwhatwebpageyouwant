@@ -170,8 +170,9 @@ async function load() {
 function render() {
   const s = state.status;
   $("#lastRun").textContent = s.last_run
-    ? `Dernier contrôle ${relTime(s.last_run)} · ${dtf.format(new Date(s.last_run))}`
-    : "Aucun contrôle pour l’instant";
+    ? `dernier contrôle ${relTime(s.last_run)}`
+    : "aucun contrôle pour l’instant";
+  $("#lastRun").title = s.last_run ? dtf.format(new Date(s.last_run)) : "";
 
   const items = state.urls.map((entry, i) => ({ entry, i, st: s.pages?.[state.ids[i]] }));
   // Les modifications les plus récentes en premier, puis l'ordre du fichier.

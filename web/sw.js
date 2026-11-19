@@ -1,5 +1,5 @@
 // Service worker : réseau d'abord, cache en secours (hors ligne), notifications Web Push.
-const CACHE = "veille-v2";
+const CACHE = "veille-v3";
 const SHELL = ["./", "index.html", "style.css", "app.js", "manifest.webmanifest", "icons/icon.svg"];
 
 self.addEventListener("install", (e) => {
