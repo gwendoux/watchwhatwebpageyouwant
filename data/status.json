@@ -1,6 +1,6 @@
 {
-  "last_run": "2026-11-19T15:41:59+00:00",
-  "count": 2,
+  "last_run": "2026-11-19T15:43:35+00:00",
+  "count": 1,
   "changes_last_run": 0,
   "push": {
     "subscriptions": 0,
@@ -10,24 +10,12 @@
     "errors": []
   },
   "pages": {
-    "30d31da2eca1": {
-      "name": "Exemple – page d'accueil",
-      "url": "https://example.com/",
-      "selector": null,
-      "last_check": "2026-11-19T15:41:59+00:00",
-      "last_success": "2026-11-19T15:41:59+00:00",
-      "hash": "0a080719be9fbb82a86a45b80dc8c2a430fbe17dc93d23758debac092864d00f",
-      "first_seen": "2026-11-18T19:33:48+00:00",
-      "last_change": null,
-      "diff": null,
-      "length": 156
-    },
     "c549399e9c64": {
       "name": "Statut GitHub",
       "url": "https://www.githubstatus.com/",
       "selector": ".page-status, .unresolved-incidents",
-      "last_check": "2026-11-19T15:41:59+00:00",
-      "last_success": "2026-11-19T15:41:59+00:00",
+      "last_check": "2026-11-19T15:43:35+00:00",
+      "last_success": "2026-11-19T15:43:35+00:00",
       "hash": "d32522748bb3bef6b59ade68d5e07507edac896b95db5e910ba1560cb10716f9",
       "first_seen": "2026-11-18T19:33:48+00:00",
       "last_change": null,
