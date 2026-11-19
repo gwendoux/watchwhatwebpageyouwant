@@ -1,11 +1,11 @@
 {
-  "last_run": "2026-11-19T19:28:18+00:00",
+  "last_run": "2026-11-19T19:29:51+00:00",
   "count": 1,
-  "changes_last_run": 1,
+  "changes_last_run": 0,
   "push": {
     "subscriptions": 2,
     "configured": true,
-    "sent_last_run": 4,
+    "sent_last_run": 0,
     "dead": [],
     "errors": []
   },
@@ -14,8 +14,8 @@
       "name": "Statut GitHub",
       "url": "https://www.githubstatus.com/",
       "selector": ".page-status, .unresolved-incidents",
-      "last_check": "2026-11-19T19:28:18+00:00",
-      "last_success": "2026-11-19T19:28:18+00:00",
+      "last_check": "2026-11-19T19:29:51+00:00",
+      "last_success": "2026-11-19T19:29:51+00:00",
       "hash": "d32522748bb3bef6b59ade68d5e07507edac896b95db5e910ba1560cb10716f9",
       "first_seen": "2026-11-18T19:33:48+00:00",
       "last_change": "2026-11-19T19:28:18+00:00",
