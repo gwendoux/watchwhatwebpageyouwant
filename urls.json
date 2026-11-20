@@ -3,5 +3,9 @@
     "name": "Statut GitHub",
     "url": "https://www.githubstatus.com/",
     "selector": ".page-status, .unresolved-incidents"
+  },
+  {
+    "name": "Atelier",
+    "url": "https://ateliers-alabricole.fr/ateliers/"
   }
 ]
