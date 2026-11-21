@@ -15,6 +15,9 @@ data/snapshots/<id>.txt       dernier texte extrait de chaque page
 data/history/<id>.json        historique des modifications (100 dernières)
 web/                          interface (HTML/CSS/JS sans framework)
 .github/workflows/veille.yml  contrôle horaire + déploiement de GitHub Pages
+.github/dependabot.yml        mises à jour hebdomadaires des actions et dépendances
+tests/                        tests (unittest, sans dépendance supplémentaire)
+requirements.in / .txt        dépendances, figées avec leurs hash
 ```
 
 ---
@@ -34,7 +37,7 @@ Les notifications Web Push sont signées par une clé privée, à garder en secr
 
 1. Générez une paire de clés, au choix :
    ```bash
-   pip install cryptography && python scripts/webpush.py generate
+   pip install --require-hashes -r requirements.txt && python scripts/webpush.py generate
    ```
    ou, avec Node.js : `npx web-push generate-vapid-keys` (seule la *Private Key* sert).
 2. Dépôt → **Settings → Secrets and variables → Actions → Secrets → New repository secret**
@@ -121,16 +124,28 @@ Pour chaque modification, chaque appareil abonné reçoit une notification **« 
 
 ## Bon à savoir
 
-- **Horaire approximatif** : GitHub peut retarder les tâches planifiées de plusieurs minutes, voire en sauter une aux heures chargées.
+- **Fréquence réelle** : le workflow est planifié toutes les heures, mais GitHub retarde ou saute souvent les tâches planifiées des petits dépôts publics. En pratique, on observe parfois un contrôle toutes les 6 à 9 heures. Le bouton « Lancer un contrôle maintenant » et toute modification de `urls.json` déclenchent un contrôle immédiat.
 - **Pages dynamiques** : le script lit le HTML tel que le serveur l'envoie, sans exécuter de JavaScript. Une page dont le contenu est généré côté navigateur peut donc paraître vide ou figée. Ciblez alors un sélecteur présent dans le HTML initial.
 - **Contenu changeant** (horloge, compteur, publicité…) : il provoque de fausses alertes. Utilisez un sélecteur pour ne surveiller que la zone utile.
 - **Inactivité** : GitHub désactive les workflows planifiés d'un dépôt public sans activité pendant 60 jours. Les commits horaires de `data/status.json` maintiennent normalement le dépôt actif. Si le workflow est désactivé malgré tout, réactivez-le depuis l'onglet **Actions**.
 - **Mise à jour de l'interface** : GitHub Pages met parfois quelques minutes à servir la nouvelle version. Le bouton **↻** recharge les données.
 
+## Sécurité
+
+- **Interface** : politique de sécurité du contenu (CSP) stricte avec *Trusted Types*. Seuls les scripts du site s'exécutent, et le réseau n'est ouvert que vers `api.github.com`. Aucune bibliothèque tierce, aucun `innerHTML`. Les liens n'acceptent que `http(s)`, ce qui bloque une URL `javascript:` glissée dans `urls.json`.
+- **Jeton** : il est stocké dans le `localStorage`, donc accessible à tout script de la même origine. Or, sur `https://<compte>.github.io/`, **tous les sites GitHub Pages de votre compte partagent la même origine**. Ne publiez pas sur ce compte d'autres sites Pages en lesquels vous n'avez pas confiance, ou servez Veille depuis un domaine personnalisé. Limitez le jeton à ce dépôt et donnez-lui une date d'expiration.
+- **Script de contrôle** : il n'accepte que des URL `http(s)` publiques. Les adresses privées, locales ou de métadonnées cloud sont refusées, y compris après une redirection, ce qui protège contre les attaques SSRF. Les pages sont limitées à 5 Mo et aux types texte/HTML. Le texte issu des pages ne peut pas injecter de commandes dans les logs du workflow.
+- **Notifications** : elles ne partent que vers les services push des navigateurs (Apple, Google, Mozilla, Microsoft). La clé VAPID reste un secret GitHub, et les abonnements sont dans une variable privée.
+- **Chaîne d'approvisionnement** : les actions GitHub sont épinglées par SHA et les dépendances Python sont figées avec leurs hash (`--require-hashes`). Chaque job n'a que les permissions dont il a besoin. Dependabot propose chaque semaine les mises à jour.
+
 ## Développement local
 
 ```bash
-pip install -r requirements.txt
+python -m venv .venv && . .venv/bin/activate && pip install --require-hashes -r requirements.txt
+```
+
+```bash
+python -m unittest discover -s tests   # tests (lancés aussi par le workflow à chaque push)
 ```
 
 ```bash
@@ -141,4 +156,10 @@ Pour voir l'interface avec les données locales :
 
 ```bash
 mkdir -p _site/data && cp -r web/. _site/ && cp urls.json _site/ && cp -r data/status.json data/history _site/data/ && python scripts/webpush.py public > _site/vapid.json && python -m http.server -d _site 8000
+```
+
+Mettre à jour les dépendances : modifier `requirements.in`, puis :
+
+```bash
+uv pip compile requirements.in --generate-hashes --python-version 3.14 -o requirements.txt
 ```

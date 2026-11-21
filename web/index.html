@@ -2,12 +2,15 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
+  <!-- GitHub Pages ne permet pas d'en-têtes HTTP : la politique de sécurité est déclarée ici. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self' https://api.github.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; require-trusted-types-for 'script'; trusted-types veille">
+  <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
   <title>Veille</title>
   <meta name="description" content="Surveillance de pages web">
   <meta name="theme-color" content="#f2efe6" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#111110" media="(prefers-color-scheme: dark)">
-  <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Veille">
@@ -15,38 +18,41 @@
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
 </head>
 <body>
   <header class="top">
     <div>
       <h1>veille<span class="cursor" aria-hidden="true"></span></h1>
-      <p id="lastRun" class="muted">Chargement…</p>
+      <p id="lastRun" class="muted">chargement…</p>
     </div>
-    <nav>
-      <button id="btnRefresh" class="icon" aria-label="Actualiser" title="Actualiser">↻</button>
-      <button id="btnSettings" class="icon" aria-label="Réglages" title="Réglages">⚙︎</button>
-      <button id="btnAdd" class="icon primary" aria-label="Ajouter une URL" title="Ajouter">＋</button>
+    <nav aria-label="Actions principales">
+      <button type="button" id="btnRefresh" class="icon" aria-label="Actualiser" title="Actualiser">↻</button>
+      <button type="button" id="btnSettings" class="icon" aria-label="Réglages" title="Réglages">⚙︎</button>
+      <button type="button" id="btnAdd" class="icon primary" aria-label="Ajouter une URL" title="Ajouter">＋</button>
     </nav>
   </header>
 
-  <div id="banner" class="banner" hidden></div>
+  <div id="banner" class="banner" role="status" hidden></div>
 
-  <main id="list" aria-live="polite"></main>
+  <main id="list" aria-live="polite" aria-busy="true"></main>
 
   <p id="empty" class="empty muted" hidden>Aucune URL surveillée. Touchez ＋ pour en ajouter une.</p>
 
   <!-- Ajout / modification -->
-  <dialog id="dlgEdit">
+  <dialog id="dlgEdit" closedby="any" aria-labelledby="editTitle">
     <form method="dialog" id="formEdit">
       <h2 id="editTitle">Ajouter une URL</h2>
       <label>Nom
-        <input name="name" required autocomplete="off" placeholder="Ex. Prix du billet">
+        <input name="name" required maxlength="200" autocomplete="off" placeholder="Ex. Prix du billet">
       </label>
       <label>URL
-        <input name="url" type="url" required inputmode="url" autocapitalize="off" autocomplete="off" placeholder="https://…">
+        <input name="url" type="url" required maxlength="2000" pattern="https?://.+" inputmode="url"
+               autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="https://…">
       </label>
       <label>Sélecteur CSS <span class="muted">(facultatif)</span>
-        <input name="selector" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="Ex. #prix, .article h1">
+        <input name="selector" maxlength="500" autocapitalize="off" autocomplete="off" spellcheck="false"
+               placeholder="Ex. #prix, .article h1">
       </label>
       <p class="hint muted">Sans sélecteur, tout le texte de la page est comparé.</p>
       <div class="actions">
@@ -57,24 +63,26 @@
   </dialog>
 
   <!-- Réglages -->
-  <dialog id="dlgSettings">
+  <dialog id="dlgSettings" closedby="any" aria-labelledby="settingsTitle">
     <form method="dialog" id="formSettings">
-      <h2>Réglages</h2>
+      <h2 id="settingsTitle">Réglages</h2>
       <label>Dépôt GitHub
-        <input name="repo" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="propriétaire/depot">
+        <input name="repo" maxlength="140" pattern="[A-Za-z0-9\-]+/[A-Za-z0-9._\-]+" autocapitalize="off"
+               autocomplete="off" spellcheck="false" placeholder="propriétaire/depot">
       </label>
       <label>Jeton fine-grained
-        <input name="token" type="password" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="github_pat_…">
+        <input name="token" type="password" maxlength="255" autocapitalize="off" autocomplete="off"
+               spellcheck="false" placeholder="github_pat_…">
       </label>
-      <p class="hint muted">Le jeton reste uniquement dans ce navigateur (localStorage). Il sert à modifier <code>urls.json</code>, à enregistrer l’abonnement aux notifications et à lancer un contrôle.</p>
-      <p id="tokenState" class="hint"></p>
+      <p class="hint muted">Le jeton reste uniquement sur cet appareil et n’est envoyé qu’à api.github.com. Il sert à modifier <code>urls.json</code>, à enregistrer l’abonnement aux notifications et à lancer un contrôle.</p>
+      <p id="tokenState" class="hint" role="status"></p>
       <div class="actions">
         <button type="button" class="ghost danger" id="btnForget">Oublier le jeton</button>
         <button type="submit" class="primary">Enregistrer</button>
       </div>
       <hr>
       <h3>Notifications</h3>
-      <p id="pushState" class="hint muted">…</p>
+      <p id="pushState" class="hint muted" role="status">…</p>
       <button type="button" id="btnPush" class="wide primary" hidden>Activer les notifications sur cet appareil</button>
       <button type="button" id="btnPushTest" class="wide" hidden>Envoyer une notification de test</button>
       <hr>
@@ -84,7 +92,7 @@
   </dialog>
 
   <!-- Historique -->
-  <dialog id="dlgHistory" class="tall">
+  <dialog id="dlgHistory" class="tall" closedby="any" aria-labelledby="histTitle">
     <div class="dlg-head">
       <h2 id="histTitle">Historique</h2>
       <button type="button" class="icon" data-close aria-label="Fermer">✕</button>
@@ -97,9 +105,9 @@
       <div class="card-head">
         <div class="titles">
           <h3 class="name"></h3>
-          <a class="host muted" target="_blank" rel="noopener"></a>
+          <a class="host muted" target="_blank" rel="noopener noreferrer"></a>
         </div>
-        <button class="icon menu" aria-label="Actions">⋯</button>
+        <button type="button" class="icon menu" aria-label="Actions" aria-expanded="false">⋯</button>
       </div>
       <dl class="dates">
         <div><dt>Contrôle</dt><dd class="checked"></dd></div>
@@ -110,16 +118,14 @@
       <details class="diff-wrap">
         <summary></summary>
         <pre class="diff"></pre>
-        <button class="ghost small history">Historique complet</button>
+        <button type="button" class="ghost small history">Historique complet</button>
       </details>
       <div class="card-actions" hidden>
-        <a class="btn ghost small open" target="_blank" rel="noopener">Ouvrir</a>
-        <button class="ghost small edit">Modifier</button>
-        <button class="ghost small danger delete">Supprimer</button>
+        <a class="btn ghost small open" target="_blank" rel="noopener noreferrer">Ouvrir</a>
+        <button type="button" class="ghost small edit">Modifier</button>
+        <button type="button" class="ghost small danger delete">Supprimer</button>
       </div>
     </article>
   </template>
-
-  <script src="app.js"></script>
 </body>
 </html>

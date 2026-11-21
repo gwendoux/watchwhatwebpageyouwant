@@ -1,45 +1,25 @@
 :root {
+  color-scheme: light dark;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
-  --bg: #f2efe6;
-  --card: #fbfaf5;
-  --text: #111110;
-  --muted: #6e6b62;
-  --line: #dedad0;
+  --bg: light-dark(#f2efe6, #111110);
+  --card: light-dark(#fbfaf5, #1b1b19);
+  --text: light-dark(#111110, #f2efe6);
+  --muted: light-dark(#6a675e, #9a968b);
+  --line: light-dark(#dedad0, #2e2d29);
   --accent: #ff5b2e;
   --accent-text: #111110;
-  --accent-ink: #c23c14;
-  --add-bg: #e3f5e6;
-  --add-text: #135c22;
-  --del-bg: #fbe7e5;
-  --del-text: #8f1f16;
-  --warn-bg: #fff3d6;
-  --warn-text: #7a5300;
-  --new: #ff5b2e;
+  --accent-ink: light-dark(#b83812, #ff7d57);
+  --add-bg: light-dark(#e3f5e6, #13321a);
+  --add-text: light-dark(#135c22, #9be3a8);
+  --del-bg: light-dark(#fbe7e5, #3d1714);
+  --del-text: light-dark(#8f1f16, #ffaaa2);
+  --warn-bg: light-dark(#fff3d6, #3a2e10);
+  --warn-text: light-dark(#6e4b00, #ffd479);
   --radius: 12px;
-  color-scheme: light dark;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #111110;
-    --card: #1b1b19;
-    --text: #f2efe6;
-    --muted: #9a968b;
-    --line: #2e2d29;
-    --accent: #ff5b2e;
-    --accent-text: #111110;
-    --accent-ink: #ff7d57;
-    --add-bg: #13321a;
-    --add-text: #9be3a8;
-    --del-bg: #3d1714;
-    --del-text: #ffaaa2;
-    --warn-bg: #3a2e10;
-    --warn-text: #ffd479;
-    --new: #ff5b2e;
-  }
 }
 
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body {
   margin: 0;
   background: var(--bg);
@@ -95,10 +75,10 @@ main { display: grid; gap: 12px; }
   background: var(--card); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 14px 16px;
 }
-.card.recent { border-left: 4px solid var(--new); }
+.card.recent { border-left: 4px solid var(--accent); }
 .card-head { display: flex; gap: 8px; align-items: flex-start; }
 .titles { flex: 1; min-width: 0; }
-.card h3 { margin: 0; font-size: 16px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.card h3 { text-wrap: balance; margin: 0; font-size: 16px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
 .host { font-size: 12px; text-decoration: none; overflow-wrap: anywhere; }
 .menu { margin: -6px -8px 0 0; border: none; background: transparent; }
 
@@ -121,15 +101,15 @@ details.diff-wrap summary {
 details.diff-wrap summary::-webkit-details-marker { display: none; }
 details.diff-wrap summary::before { content: "▸ "; }
 details[open].diff-wrap summary::before { content: "▾ "; }
-details.diff-wrap.empty summary { color: var(--muted); cursor: default; }
-details.diff-wrap.empty summary::before { content: ""; }
+details.diff-wrap.no-diff summary { color: var(--muted); cursor: default; }
+details.diff-wrap.no-diff summary::before { content: ""; }
 
 pre.diff {
   margin: 8px 0; padding: 8px 0; border-radius: 8px;
   background: var(--bg); border: 1px solid var(--line);
   font: 12px/1.5 var(--mono);
   white-space: pre-wrap; overflow-wrap: anywhere;
-  max-height: 60vh; overflow: auto;
+  max-height: 60dvh; overflow: auto; overscroll-behavior: contain;
 }
 pre.diff span { display: block; padding: 0 10px; }
 pre.diff .add { background: var(--add-bg); color: var(--add-text); }
@@ -148,7 +128,7 @@ dialog {
   background: var(--card); color: var(--text);
   box-shadow: 0 20px 60px rgba(0,0,0,.25);
 }
-dialog.tall { max-height: 85vh; }
+dialog.tall { max-height: 85dvh; overscroll-behavior: contain; }
 dialog::backdrop { background: rgba(0,0,0,.4); }
 dialog h2 { margin: 0 0 14px; font-size: 18px; }
 .dlg-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
@@ -161,12 +141,20 @@ input {
   padding: 11px 12px; border-radius: 10px;
   border: 1px solid var(--line); background: var(--bg); color: var(--text);
 }
-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+input:focus-visible, button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+input:user-invalid { border-color: var(--del-text); }
 .hint { font-size: 12px; margin: -6px 0 14px; }
 .actions { display: flex; justify-content: flex-end; gap: 8px; }
 hr { border: none; border-top: 1px solid var(--line); margin: 18px 0 8px; }
 
 dialog h3 { margin: 4px 0 10px; font-size: 15px; }
 .card.flash { outline: 3px solid var(--accent); outline-offset: 2px; transition: outline-color 1.5s; }
+.card { scroll-margin-top: 96px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
 .hist-item { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
 .hist-item h4 { margin: 0; font-size: 13px; font-weight: 700; }
